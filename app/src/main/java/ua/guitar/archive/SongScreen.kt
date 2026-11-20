@@ -295,7 +295,7 @@ private fun RemarksTab(vm: AppVm, song: Song) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 Column(Modifier.padding(14.dp)) {
-                    Text(fmtDate(n.createdAt), style = MaterialTheme.typography.labelMedium, color = Amber)
+                    Text(fmtDate(n.createdAt), style = MaterialTheme.typography.labelMedium, color = Accent)
                     Spacer(Modifier.height(4.dp))
                     Text(n.text, style = MaterialTheme.typography.bodyLarge)
                 }
@@ -442,7 +442,7 @@ private fun NotesTab(vm: AppVm, song: Song) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
             ) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Description, null, tint = Amber)
+                    Icon(Icons.Rounded.Description, null, tint = Accent)
                     Text(
                         a.name, Modifier.weight(1f).padding(horizontal = 12.dp),
                         maxLines = 2, overflow = TextOverflow.Ellipsis,

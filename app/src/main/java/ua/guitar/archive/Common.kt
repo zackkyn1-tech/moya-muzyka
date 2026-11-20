@@ -45,28 +45,37 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-val Amber = Color(0xFFFFB74D)
-val RecRed = Color(0xFFE53935)
+/** Головний акцент — світлий лавандовий. */
+val Accent = Color(0xFFC9A7FF)
+val RecRed = Color(0xFFE53950)
 
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
+    // Темно-фіолетова тема «Схрон».
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Amber,
-            onPrimary = Color(0xFF2B1700),
-            primaryContainer = Color(0xFF5C3B00),
-            onPrimaryContainer = Color(0xFFFFDDB3),
-            secondary = Color(0xFFE0C2A0),
-            secondaryContainer = Color(0xFF4A3A2A),
-            onSecondaryContainer = Color(0xFFFCE0C0),
-            background = Color(0xFF141110),
-            surface = Color(0xFF141110),
-            surfaceVariant = Color(0xFF2E2723),
-            surfaceContainerLowest = Color(0xFF0F0C0B),
-            surfaceContainerLow = Color(0xFF1C1816),
-            surfaceContainer = Color(0xFF211C19),
-            surfaceContainerHigh = Color(0xFF2B2522),
-            surfaceContainerHighest = Color(0xFF36302C),
+            primary = Accent,
+            onPrimary = Color(0xFF2A0F55),
+            primaryContainer = Color(0xFF4A2B80),
+            onPrimaryContainer = Color(0xFFEADDFF),
+            secondary = Color(0xFFCCC0E6),
+            onSecondary = Color(0xFF2E2445),
+            secondaryContainer = Color(0xFF3A2D5C),
+            onSecondaryContainer = Color(0xFFE8DEFF),
+            tertiary = Color(0xFFF0B8E0),
+            background = Color(0xFF120D1C),
+            onBackground = Color(0xFFE8E0F2),
+            surface = Color(0xFF120D1C),
+            onSurface = Color(0xFFE8E0F2),
+            surfaceVariant = Color(0xFF2C2340),
+            onSurfaceVariant = Color(0xFFC6BBD9),
+            outline = Color(0xFF8B7FA3),
+            outlineVariant = Color(0xFF3F3556),
+            surfaceContainerLowest = Color(0xFF0C0814),
+            surfaceContainerLow = Color(0xFF181224),
+            surfaceContainer = Color(0xFF1D162B),
+            surfaceContainerHigh = Color(0xFF261E37),
+            surfaceContainerHighest = Color(0xFF302742),
             error = Color(0xFFFF6B5E),
         ),
         content = content,
@@ -133,7 +142,7 @@ fun CoverImage(
         if (bmp != null) {
             Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {
-            Icon(icon, null, tint = Amber.copy(alpha = 0.55f), modifier = Modifier.fillMaxSize(0.4f))
+            Icon(icon, null, tint = Accent.copy(alpha = 0.55f), modifier = Modifier.fillMaxSize(0.4f))
         }
     }
 }
@@ -294,7 +303,7 @@ fun EmptyState(icon: ImageVector, title: String, text: String, modifier: Modifie
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(icon, null, Modifier.size(64.dp), tint = Amber.copy(alpha = 0.6f))
+        Icon(icon, null, Modifier.size(64.dp), tint = Accent.copy(alpha = 0.6f))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(
             text, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center,
@@ -390,7 +399,7 @@ fun AudioRow(
                     IconToggleButton(checked = p.looping, onCheckedChange = { p.toggleLoop() }) {
                         Icon(
                             Icons.Rounded.Repeat, "Повтор",
-                            tint = if (p.looping) Amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (p.looping) Accent else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }

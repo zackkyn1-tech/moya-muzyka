@@ -72,7 +72,7 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                             ),
                             modifier = Modifier.fillMaxWidth(),
                         )
-                    } else Text("Моя музика", fontWeight = FontWeight.Bold)
+                    } else Text("Схрон", fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
                     if (searching) IconButton(onClick = { searching = false; query = "" }) {
@@ -342,7 +342,7 @@ private fun BackupBanner(failed: Boolean, onClick: () -> Unit) {
         ),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if (failed) Icons.Rounded.Warning else Icons.Rounded.Backup, null, tint = Amber)
+            Icon(if (failed) Icons.Rounded.Warning else Icons.Rounded.Backup, null, tint = Accent)
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(
                     if (failed) "Остання копія не збереглась" else "Налаштуй автоматичні копії",
@@ -389,7 +389,7 @@ private fun BackupDialog(vm: AppVm, onDismiss: () -> Unit) {
                 Text(
                     "Папка: " + (folder ?: "не вибрана"),
                     style = MaterialTheme.typography.titleSmall,
-                    color = if (folder == null) MaterialTheme.colorScheme.error else Amber,
+                    color = if (folder == null) MaterialTheme.colorScheme.error else Accent,
                 )
                 if (vm.lastBackupAt > 0) Text(
                     "Остання копія: ${fmtDate(vm.lastBackupAt)}",

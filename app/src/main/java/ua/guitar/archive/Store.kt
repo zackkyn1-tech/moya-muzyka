@@ -208,7 +208,7 @@ class Store(private val ctx: Context) {
         }
         val lib = imported ?: run {
             extracted.forEach { it.delete() }
-            error("Це не резервна копія «Моя музика»")
+            error("Це не резервна копія «Схрон»")
         }
         var added = 0
         update { cur ->
@@ -228,7 +228,7 @@ class Store(private val ctx: Context) {
 private fun safeName(name: String): String =
     name.replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_").trim().trimEnd('.').take(80).ifBlank { "без назви" }
 
-private const val BACKUP_README = """Моя музика — резервна копія
+private const val BACKUP_README = """Схрон — резервна копія
 
 Тут усе, що було в додатку, у звичайних файлах:
   Пісні/<Категорія>/<Пісня>/
