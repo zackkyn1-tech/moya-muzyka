@@ -23,6 +23,13 @@ data class Attachment(
     val addedAt: Long,
 )
 
+/** Примітка-запис у щоденнику пісні (темп, стрій, що не виходить…). */
+data class Note(
+    val id: String,
+    val text: String,
+    val createdAt: Long,
+)
+
 data class Category(
     val id: String,
     val name: String,
@@ -42,6 +49,7 @@ data class Song(
     val noteFiles: List<Attachment> = emptyList(),
     val audio: List<Attachment> = emptyList(),
     val recordings: List<Recording> = emptyList(),
+    val notes: List<Note> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     fun allFiles(): List<String> =
@@ -99,6 +107,9 @@ object LibraryJson {
                             )
                         }
                     })
+                    .put("notes", JSONArray().apply {
+                        s.notes.forEach { put(JSONObject().put("id", it.id).put("text", it.text).put("createdAt", it.createdAt)) }
+                    })
                     .put("createdAt", s.createdAt)
             )
         }
@@ -128,6 +139,9 @@ object LibraryJson {
                         it.getString("id"), it.optString("name"), it.getString("file"),
                         it.optLong("createdAt"), it.optLong("durationMs"),
                     )
+                },
+                notes = s.optJSONArray("notes").list {
+                    Note(it.getString("id"), it.optString("text"), it.optLong("createdAt"))
                 },
                 createdAt = s.optLong("createdAt"),
             )

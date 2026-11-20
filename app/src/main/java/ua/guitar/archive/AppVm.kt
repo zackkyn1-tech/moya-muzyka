@@ -1,6 +1,13 @@
 package ua.guitar.archive
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
+import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Job
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.SystemClock
@@ -22,6 +29,10 @@ sealed interface Screen {
     data class CategoryScr(val id: String) : Screen
     data class SongScr(val id: String) : Screen
 }
+
+private const val BACKUP_PREFIX = "moya-muzyka_"
+private const val TMP_PREFIX = "moya-muzyka-tmp_"
+const val KEEP_BACKUPS = 5
 
 class AppVm(app: Application) : AndroidViewModel(app) {
     val store = Store(app)
@@ -151,6 +162,83 @@ class AppVm(app: Application) : AndroidViewModel(app) {
             if (res.size < uris.size) toast("Деякі файли не вдалося додати")
             onDone(res)
         }
+    }
+
+    // ---------- Автоматичні резервні копії (тільки в папку на телефоні) ----------
+    private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var backupFolder by mutableStateOf(prefs.getString("backupTree", null)?.let(Uri::parse)); private set
+    var lastBackupAt by mutableLongStateOf(prefs.getLong("lastBackupAt", 0L)); private set
+    var backupFailed by mutableStateOf(false); private set
+    private var backupJob: Job? = null
+
+    fun backupFolderName(): String? = backupFolder?.let {
+        runCatching { DocumentFile.fromTreeUri(getApplication(), it)?.name }.getOrNull()
+    }
+
+    fun chooseBackupFolder(uri: Uri) {
+        val cr = getApplication<Application>().contentResolver
+        try {
+            cr.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (_: Exception) {
+            toast("Не вдалося отримати доступ до папки"); return
+        }
+        prefs.edit().putString("backupTree", uri.toString()).apply()
+        backupFolder = uri
+        backupNow(manual = true)
+    }
+
+    /** Викликається, коли додаток згортають: робить копію, якщо щось змінилось. */
+    fun autoBackupIfNeeded() {
+        if (backupFolder == null || recSongId != null) return
+        val changed = store.lastModified() > prefs.getLong("backedUpVersion", 0L)
+        val recently = System.currentTimeMillis() - lastBackupAt < 30 * 60 * 1000L
+        if (changed && !recently) backupNow(manual = false)
+    }
+
+    fun backupNow(manual: Boolean) {
+        val tree = backupFolder ?: return
+        if (backupJob?.isActive == true) return
+        backupJob = viewModelScope.launch {
+            if (manual) busy = "Створюю резервну копію…"
+            val version = store.lastModified()
+            val r = withContext(Dispatchers.IO) { runCatching { writeAutoBackup(tree) } }
+            busy = null
+            r.onSuccess {
+                val now = System.currentTimeMillis()
+                lastBackupAt = now
+                backupFailed = false
+                prefs.edit().putLong("lastBackupAt", now).putLong("backedUpVersion", version).apply()
+                if (manual) toast("Копію збережено")
+            }.onFailure {
+                backupFailed = true
+                if (manual) toast("Не вдалося зберегти копію: ${it.message}")
+            }
+        }
+    }
+
+    private fun writeAutoBackup(tree: Uri) {
+        val app = getApplication<Application>()
+        val dir = DocumentFile.fromTreeUri(app, tree) ?: error("папка недоступна")
+        if (!dir.canWrite()) error("немає доступу до папки — вибери її ще раз")
+        // Прибираємо недописані файли (якщо телефон вимкнувся під час копіювання).
+        dir.listFiles().filter { it.name?.startsWith(TMP_PREFIX) == true }.forEach { it.delete() }
+        val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+        val tmp = dir.createFile("application/zip", "$TMP_PREFIX$stamp") ?: error("не вдалося створити файл")
+        try {
+            (app.contentResolver.openOutputStream(tmp.uri) ?: error("не вдалося записати")).use { store.writeBackup(it) }
+        } catch (e: Exception) {
+            tmp.delete(); throw e
+        }
+        if (!tmp.renameTo("$BACKUP_PREFIX$stamp.zip")) {
+            tmp.delete(); error("не вдалося перейменувати файл")
+        }
+        dir.listFiles()
+            .filter { val n = it.name ?: ""; n.startsWith(BACKUP_PREFIX) && n.endsWith(".zip") }
+            .sortedByDescending { it.name }
+            .drop(KEEP_BACKUPS)
+            .forEach { it.delete() }
     }
 
     fun exportBackup(uri: Uri) {

@@ -8,8 +8,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
@@ -52,12 +55,7 @@ fun HomeScreen(vm: AppVm, lib: Library) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {
-        it?.let(vm::exportBackup)
-    }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
-        it?.let(vm::importBackup)
-    }
+    var backups by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -88,20 +86,9 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                             IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Меню") }
                             DropdownMenu(menu, { menu = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Зберегти резервну копію") },
-                                    leadingIcon = { Icon(Icons.Rounded.Upload, null) },
-                                    onClick = {
-                                        menu = false
-                                        val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                                        exportLauncher.launch("music-backup-$d.zip")
-                                    })
-                                DropdownMenuItem(
-                                    text = { Text("Відновити з копії") },
-                                    leadingIcon = { Icon(Icons.Rounded.Download, null) },
-                                    onClick = {
-                                        menu = false
-                                        importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
-                                    })
+                                    text = { Text("Резервні копії") },
+                                    leadingIcon = { Icon(Icons.Rounded.Backup, null) },
+                                    onClick = { menu = false; backups = true })
                                 HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text("Перевірити оновлення") },
@@ -144,6 +131,9 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (vm.backupFolder == null || vm.backupFailed) item(span = { GridItemSpan(maxLineSpan) }) {
+                    BackupBanner(vm.backupFailed) { backups = true }
+                }
                 items(lib.categories, key = { it.id }) { c ->
                     CategoryCard(
                         vm, c, lib.songs.count { it.categoryId == c.id },
@@ -153,6 +143,8 @@ fun HomeScreen(vm: AppVm, lib: Library) {
             }
         }
     }
+
+    if (backups) BackupDialog(vm) { backups = false }
 
     if (adding) EditItemDialog(
         title = "Нова категорія", nameLabel = "Назва (напр. Рок)", initialName = "",
@@ -230,7 +222,9 @@ private fun CategoryCard(vm: AppVm, c: Category, count: Int, onEdit: () -> Unit,
 private fun SearchResults(vm: AppVm, lib: Library, query: String, pad: PaddingValues) {
     val q = query.trim().lowercase()
     val found = if (q.isEmpty()) emptyList() else lib.songs.filter {
-        it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) || it.lyrics.lowercase().contains(q)
+        it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) ||
+            it.lyrics.lowercase().contains(q) || it.chords.lowercase().contains(q) ||
+            it.notes.any { n -> n.text.lowercase().contains(q) }
     }.sortedBy { it.title.lowercase() }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = pad) {
         if (q.isNotEmpty() && found.isEmpty()) item {
@@ -337,4 +331,102 @@ fun CategoryScreen(vm: AppVm, lib: Library, cat: Category) {
         "Усі пісні цієї категорії разом із записами та файлами буде видалено назавжди.",
         onDismiss = { deleting = false },
     ) { vm.player.release(); vm.store.deleteCategory(cat.id); vm.back() }
+}
+
+@Composable
+private fun BackupBanner(failed: Boolean, onClick: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (failed) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer
+        ),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (failed) Icons.Rounded.Warning else Icons.Rounded.Backup, null, tint = Amber)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(
+                    if (failed) "Остання копія не збереглась" else "Налаштуй автоматичні копії",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    if (failed) "Натисни, щоб вибрати папку ще раз"
+                    else "Щоб і через роки нічого не загубилось, навіть якщо щось станеться з додатком",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupDialog(vm: AppVm, onDismiss: () -> Unit) {
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) {
+        it?.let(vm::chooseBackupFolder)
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) {
+        it?.let(vm::exportBackup)
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
+        it?.let(vm::importBackup)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Backup, null) },
+        title = { Text("Резервні копії") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    "Усе зберігається тільки на цьому телефоні — нічого не йде в інтернет чи хмару.\n\n" +
+                        "Щоб не втратити пісні й записи, додаток сам кладе копію (.zip) у вибрану папку на телефоні, " +
+                        "коли ти щось змінив і закрив додаток. Зберігаються $KEEP_BACKUPS останніх копій. " +
+                        "Копію можна відкрити навіть без додатку — там звичайні папки з текстами й записами.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                val folder = vm.backupFolderName()
+                Text(
+                    "Папка: " + (folder ?: "не вибрана"),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (folder == null) MaterialTheme.colorScheme.error else Amber,
+                )
+                if (vm.lastBackupAt > 0) Text(
+                    "Остання копія: ${fmtDate(vm.lastBackupAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (vm.backupFailed) Text(
+                    "Остання автоматична копія не вдалася. Вибери папку ще раз.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                )
+                FilledTonalButton(onClick = { pickFolder.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Folder, null); Spacer(Modifier.width(8.dp))
+                    Text(if (folder == null) "Вибрати папку" else "Змінити папку")
+                }
+                FilledTonalButton(
+                    onClick = { vm.backupNow(manual = true) },
+                    enabled = folder != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Icon(Icons.Rounded.Backup, null); Spacer(Modifier.width(8.dp)); Text("Зробити копію зараз") }
+                OutlinedButton(
+                    onClick = {
+                        val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                        exportLauncher.launch("moya-muzyka-kopiya-$d.zip")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Icon(Icons.Rounded.Upload, null); Spacer(Modifier.width(8.dp)); Text("Зберегти копію в інше місце…") }
+                OutlinedButton(
+                    onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(8.dp)); Text("Відновити з копії…") }
+                Text(
+                    "Порада: раз на кілька місяців скидай свіжу копію на комп'ютер або флешку — " +
+                        "тоді пісні переживуть навіть втрату телефону.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрити") } },
+    )
 }

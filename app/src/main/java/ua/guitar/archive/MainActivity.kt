@@ -15,9 +15,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
+    override fun onStop() {
+        super.onStop()
+        ViewModelProvider(this)[AppVm::class.java].autoBackupIfNeeded()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Завжди темний інтерфейс, включно зі статус-баром і навігацією.

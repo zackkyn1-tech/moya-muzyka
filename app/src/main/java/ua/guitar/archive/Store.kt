@@ -10,6 +10,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.zip.Deflater
+import org.json.JSONObject
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -96,15 +102,76 @@ class Store(private val ctx: Context) {
         return Imported(f.name, name, mime)
     }
 
+    fun lastModified(): Long = dataFile.lastModified()
+
     fun exportTo(uri: Uri) {
         val os = ctx.contentResolver.openOutputStream(uri) ?: error("Не вдалося створити файл")
-        ZipOutputStream(BufferedOutputStream(os)).use { z ->
-            z.putNextEntry(ZipEntry("library.json"))
-            z.write(LibraryJson.encode(current).toByteArray())
-            z.closeEntry()
-            mediaDir.listFiles()?.forEach { f ->
-                z.putNextEntry(ZipEntry("media/${f.name}"))
-                f.inputStream().use { it.copyTo(z) }
+        os.use { writeBackup(it) }
+    }
+
+    /**
+     * Резервна копія — звичайний .zip, який можна відкрити й без додатку:
+     * Пісні/<Категорія>/<Пісня>/ з текст.txt, примітки.txt, папкою Голосові …
+     * library.json + files.json потрібні, щоб відновити все назад у додаток.
+     */
+    fun writeBackup(out: OutputStream) {
+        val lib = current
+        val usedPaths = HashSet<String>()
+        fun unique(base: String, ext: String): String {
+            val suffix = if (ext.isEmpty()) "" else ".$ext"
+            var p = base + suffix
+            var i = 2
+            while (!usedPaths.add(p.lowercase())) p = "$base ($i)$suffix".also { i++ }
+            return p
+        }
+        val media = LinkedHashMap<String, String>() // ім'я файлу в додатку -> шлях у zip
+        val texts = LinkedHashMap<String, String>()
+        fun addMedia(name: String?, base: String) {
+            if (name == null || name in media || !file(name).exists()) return
+            media[name] = unique(base, name.substringAfterLast('.', ""))
+        }
+        fun addText(base: String, content: String) {
+            if (content.isNotBlank()) texts[unique(base, "txt")] = content.trim() + "\n"
+        }
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH-mm", Locale.US)
+        for (c in lib.categories) {
+            val cd = unique("Пісні/${safeName(c.name)}", "")
+            addMedia(c.cover, "$cd/обкладинка")
+            for (s in lib.songs.filter { it.categoryId == c.id }.sortedBy { it.title.lowercase() }) {
+                val title = if (s.artist.isNotBlank()) "${s.artist} - ${s.title}" else s.title
+                val sd = unique("$cd/${safeName(title)}", "")
+                addText("$sd/інфо", buildString {
+                    appendLine(s.title)
+                    if (s.artist.isNotBlank()) appendLine("Виконавець: ${s.artist}")
+                    appendLine("Категорія: ${c.name}")
+                    appendLine("Додано: ${fmtDate(s.createdAt)}")
+                    if (s.recordings.isNotEmpty()) appendLine("Голосових: ${s.recordings.size}")
+                })
+                addText("$sd/примітки", s.notes.sortedBy { it.createdAt }
+                    .joinToString("\n\n") { "— ${fmtDate(it.createdAt)} —\n${it.text.trim()}" })
+                addText("$sd/текст", s.lyrics)
+                addText("$sd/акорди", s.chords)
+                addMedia(s.cover, "$sd/обкладинка")
+                s.recordings.sortedBy { it.createdAt }.forEach {
+                    addMedia(it.file, "$sd/Голосові/${stamp.format(Date(it.createdAt))} ${safeName(it.name)}")
+                }
+                s.audio.forEach { addMedia(it.file, "$sd/Музика/${safeName(it.name.substringBeforeLast('.'))}") }
+                s.noteImages.forEachIndexed { i, n -> addMedia(n, "$sd/Ноти/фото ${i + 1}") }
+                s.noteFiles.forEach { addMedia(it.file, "$sd/Ноти/${safeName(it.name.substringBeforeLast('.'))}") }
+            }
+        }
+        ZipOutputStream(BufferedOutputStream(out)).use { z ->
+            fun put(path: String, bytes: ByteArray) {
+                z.putNextEntry(ZipEntry(path)); z.write(bytes); z.closeEntry()
+            }
+            put("ПРОЧИТАЙ.txt", BACKUP_README.toByteArray())
+            put("library.json", LibraryJson.encode(lib).toByteArray())
+            put("files.json", JSONObject(media as Map<*, *>).toString(1).toByteArray())
+            texts.forEach { (p, t) -> put(p, t.toByteArray()) }
+            z.setLevel(Deflater.NO_COMPRESSION) // аудіо й фото вже стиснуті
+            media.forEach { (name, p) ->
+                z.putNextEntry(ZipEntry(p))
+                file(name).inputStream().use { it.copyTo(z) }
                 z.closeEntry()
             }
         }
@@ -113,20 +180,29 @@ class Store(private val ctx: Context) {
     /** Додає пісні з резервної копії (існуючі не перезаписуються). Повертає кількість нових пісень. */
     fun importFrom(uri: Uri): Int {
         var imported: Library? = null
+        var pathToMedia: Map<String, String> = emptyMap()
         val extracted = mutableListOf<File>()
+        fun extract(z: ZipInputStream, mediaName: String) {
+            val f = File(mediaDir, File(mediaName).name)
+            if (!f.exists()) {
+                f.outputStream().use { z.copyTo(it) }
+                extracted += f
+            }
+        }
         val input = ctx.contentResolver.openInputStream(uri) ?: error("Не вдалося відкрити файл")
         ZipInputStream(BufferedInputStream(input)).use { z ->
             while (true) {
                 val e = z.nextEntry ?: break
                 if (e.isDirectory) continue
-                if (e.name == "library.json") {
-                    imported = LibraryJson.decode(z.readBytes().toString(Charsets.UTF_8))
-                } else if (e.name.startsWith("media/")) {
-                    val f = File(mediaDir, File(e.name).name)
-                    if (!f.exists()) {
-                        f.outputStream().use { z.copyTo(it) }
-                        extracted += f
+                when {
+                    e.name == "library.json" ->
+                        imported = LibraryJson.decode(z.readBytes().toString(Charsets.UTF_8))
+                    e.name == "files.json" -> {
+                        val o = JSONObject(z.readBytes().toString(Charsets.UTF_8))
+                        pathToMedia = o.keys().asSequence().associateBy({ o.getString(it) }, { it })
                     }
+                    e.name.startsWith("media/") -> extract(z, e.name) // копії старих версій
+                    else -> pathToMedia[e.name]?.let { extract(z, it) }
                 }
             }
         }
@@ -148,3 +224,25 @@ class Store(private val ctx: Context) {
         return added
     }
 }
+
+private fun safeName(name: String): String =
+    name.replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_").trim().trimEnd('.').take(80).ifBlank { "без назви" }
+
+private const val BACKUP_README = """Моя музика — резервна копія
+
+Тут усе, що було в додатку, у звичайних файлах:
+  Пісні/<Категорія>/<Пісня>/
+      інфо.txt      — назва, виконавець, коли додано
+      примітки.txt  — твої примітки з датами
+      текст.txt     — текст пісні
+      акорди.txt    — акорди й таби
+      Голосові/     — твої записи (.m4a), назва починається з дати
+      Музика/       — оригінали, мінусовки
+      Ноти/         — фото нот, PDF, Guitar Pro
+
+Усе це можна відкрити й без додатку: на комп'ютері чи будь-якому телефоні.
+
+Щоб повернути все в додаток: ⋮ → Резервні копії → «Відновити з копії»
+і вибрати цей .zip. Файли library.json і files.json потрібні саме для цього —
+не видаляй їх.
+"""

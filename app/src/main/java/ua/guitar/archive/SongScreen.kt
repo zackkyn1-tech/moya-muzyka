@@ -12,6 +12,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -51,7 +52,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import java.io.File
 
-private val tabs = listOf("🎙 Голосові", "Текст", "Акорди / таби", "Ноти", "Музика")
+private val tabs = listOf("🎙 Голосові", "Примітки", "Текст", "Акорди / таби", "Ноти", "Музика")
 
 @Composable
 fun SongScreen(vm: AppVm, lib: Library, song: Song) {
@@ -100,16 +101,17 @@ fun SongScreen(vm: AppVm, lib: Library, song: Song) {
             Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = pad.calculateBottomPadding())) {
                 when (tab) {
                     0 -> VoiceTab(vm, song)
-                    1 -> TextTab(
+                    1 -> RemarksTab(vm, song)
+                    2 -> TextTab(
                         key = "lyrics-${song.id}", value = song.lyrics, label = "Текст пісні",
                         placeholder = "Встав або напиши текст пісні…", mono = false,
                     ) { t -> vm.store.updateSong(song.id) { it.copy(lyrics = t) } }
-                    2 -> TextTab(
+                    3 -> TextTab(
                         key = "chords-${song.id}", value = song.chords, label = "Акорди, таби, нотатки",
                         placeholder = "Am   F   C   G\ne|-----0---|\nB|---1-----|", mono = true,
                     ) { t -> vm.store.updateSong(song.id) { it.copy(chords = t) } }
-                    3 -> NotesTab(vm, song)
-                    4 -> MusicTab(vm, song)
+                    4 -> NotesTab(vm, song)
+                    5 -> MusicTab(vm, song)
                 }
             }
         }
@@ -263,6 +265,85 @@ private fun RecorderPanel(vm: AppVm, isRec: Boolean, otherRec: Boolean, onClick:
             )
         }
     }
+}
+
+// ---------- Примітки ----------
+
+@Composable
+private fun RemarksTab(vm: AppVm, song: Song) {
+    var creating by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<Note?>(null) }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            FilledTonalButton(onClick = { creating = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Нова примітка")
+            }
+        }
+        if (song.notes.isEmpty()) item {
+            EmptyState(
+                Icons.Rounded.EditNote, "Приміток ще немає",
+                "Записуй усе, що захочеш згадати через роки: стрій, темп, капо, звідки пісня, з ким грав, що ще не виходить…",
+            )
+        }
+        items(song.notes.sortedByDescending { it.createdAt }, key = { it.id }) { n ->
+            Card(
+                Modifier.fillMaxWidth().clickable { editing = n },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(fmtDate(n.createdAt), style = MaterialTheme.typography.labelMedium, color = Amber)
+                    Spacer(Modifier.height(4.dp))
+                    Text(n.text, style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        }
+    }
+    if (creating) NoteDialog(null, { creating = false }, onSave = { t ->
+        vm.store.updateSong(song.id) { it.copy(notes = it.notes + Note(newId(), t, System.currentTimeMillis())) }
+    })
+    editing?.let { n ->
+        NoteDialog(n, { editing = null },
+            onSave = { t ->
+                vm.store.updateSong(song.id) { s -> s.copy(notes = s.notes.map { if (it.id == n.id) it.copy(text = t) else it }) }
+            },
+            onDelete = { vm.store.updateSong(song.id) { s -> s.copy(notes = s.notes.filter { it.id != n.id }) } },
+        )
+    }
+}
+
+@Composable
+private fun NoteDialog(initial: Note?, onDismiss: () -> Unit, onSave: (String) -> Unit, onDelete: (() -> Unit)? = null) {
+    var text by remember { mutableStateOf(initial?.text ?: "") }
+    var confirmDelete by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "Нова примітка" else "Примітка від ${fmtDate(initial.createdAt)}") },
+        text = {
+            OutlinedTextField(
+                text, { text = it },
+                Modifier.fillMaxWidth().heightIn(min = 160.dp),
+                placeholder = { Text("Напр.: стрій Drop D, капо на 2-му ладу, темп 90…") },
+            )
+        },
+        confirmButton = {
+            TextButton(enabled = text.isNotBlank(), onClick = { onSave(text.trim()); onDismiss() }) { Text("Зберегти") }
+        },
+        dismissButton = {
+            Row {
+                if (onDelete != null) TextButton(onClick = { confirmDelete = true }) {
+                    Text("Видалити", color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = onDismiss) { Text("Скасувати") }
+            }
+        },
+    )
+    if (confirmDelete && onDelete != null) ConfirmDialog(
+        "Видалити примітку?", "Її буде видалено назавжди.", { confirmDelete = false },
+    ) { onDelete(); onDismiss() }
 }
 
 // ---------- Текст / акорди ----------
