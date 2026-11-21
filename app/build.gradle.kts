@@ -46,7 +46,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    testOptions { unitTests.isIncludeAndroidResources = true }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all { it.systemProperty("shotDir", System.getProperty("shotDir") ?: "/tmp") }
+    }
     buildFeatures {
         compose = true
         buildConfig = true

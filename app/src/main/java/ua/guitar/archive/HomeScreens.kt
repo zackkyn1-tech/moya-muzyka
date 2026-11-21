@@ -166,11 +166,14 @@ fun HomeScreen(vm: AppVm, lib: Library) {
             )
         },
         floatingActionButton = {
-            if (!searching) ExtendedFloatingActionButton(
-                onClick = { adding = true },
-                icon = { Icon(Icons.Rounded.Add, null) },
-                text = { Text("Категорія") },
-            )
+            if (!searching) Column(horizontalAlignment = Alignment.End) {
+                Mascot(Modifier.padding(end = 4.dp, bottom = 6.dp))
+                ExtendedFloatingActionButton(
+                    onClick = { adding = true },
+                    icon = { Icon(Icons.Rounded.Add, null) },
+                    text = { Text("Категорія") },
+                )
+            }
         },
     ) { pad ->
         when {
@@ -188,7 +191,7 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                 contentPadding = PaddingValues(
                     start = 12.dp, end = 12.dp,
                     top = pad.calculateTopPadding() + 4.dp,
-                    bottom = pad.calculateBottomPadding() + 96.dp,
+                    bottom = pad.calculateBottomPadding() + 210.dp,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),

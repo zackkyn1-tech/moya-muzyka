@@ -60,3 +60,24 @@ class ReorderTest {
         assertEquals(Screen.CategoryScr("c1"), vm().stack.last())
     }
 }
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w400dp-h800dp-xxhdpi")
+class MascotTest {
+    @get:Rule
+    val rule = createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun tapShowsLovelyPhrase() {
+        rule.onNodeWithContentDescription("Котик").assertExists().performClick()
+        rule.mainClock.advanceTimeBy(600)
+        val shown = MascotPhrases.filter { rule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
+        println("PHRASE shown: $shown")
+        assertEquals(1, shown.size)
+        // Через кілька секунд бульбашка ховається.
+        rule.mainClock.advanceTimeBy(5000)
+        rule.waitForIdle()
+        val after = MascotPhrases.filter { rule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(0, after.size)
+    }
+}
