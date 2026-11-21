@@ -7,7 +7,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -202,6 +201,8 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                     CategoryCard(
                         vm, c, lib.songs.count { it.categoryId == c.id },
                         onEdit = { editing = c }, onDelete = { deleting = c },
+                        // Якщо картку затиснули для перетягування — не відкриваємо її, коли відпускаєш.
+                        onClick = { if (dragId == null) vm.open(Screen.CategoryScr(c.id)) },
                         modifier = (if (dragging) Modifier
                             .zIndex(1f)
                             .graphicsLayer {
@@ -263,6 +264,7 @@ private fun CategoryCard(
     count: Int,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -270,8 +272,8 @@ private fun CategoryCard(
             .fillMaxWidth()
             .aspectRatio(0.85f)
             .clip(MaterialTheme.shapes.large)
-            // onLongClick порожній: довге натискання — для перетягування, а не для відкриття.
-            .combinedClickable(onClick = { vm.open(Screen.CategoryScr(c.id)) }, onLongClick = {}),
+            // Звичайний clickable (без onLongClick), щоб не «з'їдати» рух пальця після затискання.
+            .clickable(onClick = onClick),
         shape = MaterialTheme.shapes.large,
     ) {
         Box {
