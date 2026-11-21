@@ -6,6 +6,12 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -238,7 +244,14 @@ private fun SearchResults(vm: AppVm, lib: Library, query: String, pad: PaddingVa
 }
 
 @Composable
-fun SongListItem(vm: AppVm, s: Song, cat: Category?, showCategory: Boolean = false) {
+fun SongListItem(
+    vm: AppVm,
+    s: Song,
+    cat: Category?,
+    showCategory: Boolean = false,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val sub = buildList {
         if (s.artist.isNotBlank()) add(s.artist)
         if (showCategory && cat != null) add(cat.name)
@@ -246,24 +259,121 @@ fun SongListItem(vm: AppVm, s: Song, cat: Category?, showCategory: Boolean = fal
     }.joinToString(" · ")
     ListItem(
         headlineContent = { Text(s.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = if (sub.isNotEmpty()) ({ Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis) }) else null,
+        supportingContent = {
+            Column {
+                if (sub.isNotEmpty()) Text(sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (s.difficulty > 0) Box(Modifier.padding(top = 3.dp)) { DifficultyStars(s.difficulty) }
+            }
+        },
         leadingContent = {
             CoverImage(
                 (s.cover ?: cat?.cover)?.let(vm.store::file),
                 Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)), reqPx = 160,
             )
         },
-        modifier = Modifier.clickable { vm.open(Screen.SongScr(s.id)) },
+        trailingContent = trailing,
+        modifier = modifier.clickable { vm.open(Screen.SongScr(s.id)) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
 }
 
 @Composable
+private fun SortChips(current: SongSort, onSelect: (SongSort) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = current == SongSort.MANUAL,
+            onClick = { onSelect(SongSort.MANUAL) },
+            label = { Text("Вручну") },
+            leadingIcon = { Icon(Icons.Rounded.DragIndicator, null, Modifier.size(18.dp)) },
+        )
+        FilterChip(
+            selected = current == SongSort.ALPHA,
+            onClick = { onSelect(SongSort.ALPHA) },
+            label = { Text("А–Я") },
+            leadingIcon = { Icon(Icons.Rounded.SortByAlpha, null, Modifier.size(18.dp)) },
+        )
+        val byDiff = current == SongSort.EASY_FIRST || current == SongSort.HARD_FIRST
+        FilterChip(
+            selected = byDiff,
+            // Повторне натискання міняє напрямок: легкі ↔ складні спочатку.
+            onClick = { onSelect(if (current == SongSort.EASY_FIRST) SongSort.HARD_FIRST else SongSort.EASY_FIRST) },
+            label = {
+                Text(
+                    when (current) {
+                        SongSort.HARD_FIRST -> "Складні спочатку"
+                        SongSort.EASY_FIRST -> "Легкі спочатку"
+                        else -> "Складність"
+                    }
+                )
+            },
+            leadingIcon = {
+                Icon(
+                    Icons.Rounded.Star, null, Modifier.size(18.dp),
+                    tint = when (current) {
+                        SongSort.HARD_FIRST -> difficultyColor(5)
+                        SongSort.EASY_FIRST -> difficultyColor(1)
+                        else -> LocalContentColor.current
+                    },
+                )
+            },
+        )
+    }
+}
+
+@Composable
 fun CategoryScreen(vm: AppVm, lib: Library, cat: Category) {
-    val songs = lib.songs.filter { it.categoryId == cat.id }.sortedBy { it.title.lowercase() }
+    val sorted = sortSongs(lib.songs.filter { it.categoryId == cat.id }, cat.sort)
+    val manual = cat.sort == SongSort.MANUAL
     var adding by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+
+    // ---- Перетягування (ручне сортування) ----
+    val listState = rememberLazyListState()
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var working by remember { mutableStateOf(sorted) }
+    if (draggingId == null && working != sorted) working = sorted
+    val songs = if (draggingId != null) working else sorted
+
+    fun onDrag(dy: Float) {
+        val id = draggingId ?: return
+        dragOffset += dy
+        val info = listState.layoutInfo
+        val cur = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
+        val center = cur.offset + dragOffset + cur.size / 2f
+        val ids = working.map { it.id }.toSet()
+        val target = info.visibleItemsInfo.firstOrNull {
+            it.key != id && it.key in ids && center >= it.offset && center <= it.offset + it.size
+        }
+        if (target != null) {
+            val from = working.indexOfFirst { it.id == id }
+            val to = working.indexOfFirst { it.id == target.key }
+            if (from >= 0 && to >= 0) {
+                working = working.toMutableList().apply { add(to, removeAt(from)) }
+                dragOffset += cur.offset - target.offset
+            }
+        }
+        // Автопрокрутка, коли тягнеш до краю екрана.
+        val edge = 120f
+        val delta = when {
+            center < info.viewportStartOffset + edge -> -18f
+            center > info.viewportEndOffset - edge -> 18f
+            else -> 0f
+        }
+        if (delta != 0f) dragOffset += listState.dispatchRawDelta(delta)
+    }
+
+    fun endDrag() {
+        if (draggingId == null) return
+        val order = working.mapIndexed { i, s -> s.id to i.toLong() }.toMap()
+        draggingId = null
+        dragOffset = 0f
+        vm.store.update { l -> l.copy(songs = l.songs.map { s -> order[s.id]?.let { s.copy(order = it) } ?: s }) }
+    }
 
     Scaffold(
         topBar = {
@@ -286,25 +396,57 @@ fun CategoryScreen(vm: AppVm, lib: Library, cat: Category) {
     ) { pad ->
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(top = pad.calculateTopPadding(), bottom = pad.calculateBottomPadding() + 96.dp),
         ) {
-            if (cat.cover != null) item {
+            if (cat.cover != null) item(key = "_cover") {
                 CoverImage(
                     vm.store.file(cat.cover),
                     Modifier.fillMaxWidth().height(180.dp).padding(horizontal = 12.dp).clip(RoundedCornerShape(20.dp)),
                     reqPx = 1024,
                 )
             }
-            if (songs.isEmpty()) item {
+            if (songs.isEmpty()) item(key = "_empty") {
                 EmptyState(Icons.Rounded.MusicNote, "Тут ще немає пісень", "Натисни «Пісня», щоб додати першу.")
-            } else item {
-                Text(
-                    songsCount(songs.size),
-                    Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            } else item(key = "_header") {
+                Column(Modifier.padding(top = 12.dp)) {
+                    SortChips(cat.sort) { new -> vm.store.updateCategory(cat.id) { it.copy(sort = new) } }
+                    Text(
+                        songsCount(songs.size) + if (manual) " · тягни за ⠿, щоб змінити порядок" else "",
+                        Modifier.padding(start = 16.dp, top = 6.dp, bottom = 2.dp),
+                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(songs, key = { it.id }) { s ->
+                val dragging = s.id == draggingId
+                val itemModifier = if (dragging) {
+                    Modifier
+                        .zIndex(1f)
+                        .graphicsLayer { translationY = dragOffset; shadowElevation = 16f }
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(12.dp))
+                } else Modifier.animateItem()
+                SongListItem(
+                    vm, s, cat, modifier = itemModifier,
+                    trailing = if (manual) ({
+                        Icon(
+                            Icons.Rounded.DragIndicator, "Перетягнути",
+                            tint = if (dragging) Accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .padding(8.dp)
+                                .pointerInput(s.id) {
+                                    detectDragGestures(
+                                        onDragStart = { draggingId = s.id; dragOffset = 0f },
+                                        onDrag = { change, amount -> change.consume(); onDrag(amount.y) },
+                                        onDragEnd = { endDrag() },
+                                        onDragCancel = { endDrag() },
+                                    )
+                                },
+                        )
+                    }) else null,
                 )
             }
-            items(songs, key = { it.id }) { s -> SongListItem(vm, s, cat) }
         }
     }
 
@@ -314,7 +456,10 @@ fun CategoryScreen(vm: AppVm, lib: Library, cat: Category) {
         onDismiss = { adding = false },
     ) { name, artist, cover, _ ->
         val id = newId()
-        vm.store.update { it.copy(songs = it.songs + Song(id = id, categoryId = cat.id, title = name, artist = artist)) }
+        val nextOrder = (lib.songs.filter { it.categoryId == cat.id }.maxOfOrNull { it.order } ?: 0L) + 1
+        vm.store.update {
+            it.copy(songs = it.songs + Song(id = id, categoryId = cat.id, title = name, artist = artist, order = nextOrder))
+        }
         applyCover(vm, null, cover, false) { f -> vm.store.updateSong(id) { it.copy(cover = f) } }
         vm.open(Screen.SongScr(id))
     }

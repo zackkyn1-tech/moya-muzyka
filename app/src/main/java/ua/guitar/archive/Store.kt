@@ -137,13 +137,14 @@ class Store(private val ctx: Context) {
         for (c in lib.categories) {
             val cd = unique("Пісні/${safeName(c.name)}", "")
             addMedia(c.cover, "$cd/обкладинка")
-            for (s in lib.songs.filter { it.categoryId == c.id }.sortedBy { it.title.lowercase() }) {
+            for (s in sortSongs(lib.songs.filter { it.categoryId == c.id }, c.sort)) {
                 val title = if (s.artist.isNotBlank()) "${s.artist} - ${s.title}" else s.title
                 val sd = unique("$cd/${safeName(title)}", "")
                 addText("$sd/інфо", buildString {
                     appendLine(s.title)
                     if (s.artist.isNotBlank()) appendLine("Виконавець: ${s.artist}")
                     appendLine("Категорія: ${c.name}")
+                    if (s.difficulty > 0) appendLine("Складність: ${"★".repeat(s.difficulty)}${"☆".repeat(5 - s.difficulty)} (${s.difficulty}/5, ${difficultyName(s.difficulty)})")
                     appendLine("Додано: ${fmtDate(s.createdAt)}")
                     if (s.recordings.isNotEmpty()) appendLine("Голосових: ${s.recordings.size}")
                 })

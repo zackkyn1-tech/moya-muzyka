@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -33,6 +34,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
@@ -404,6 +406,42 @@ fun AudioRow(
                     }
                 }
             }
+        }
+    }
+}
+
+// ---------- Складність ----------
+
+/** 1 — зелений (легко) … 5 — червоний (дуже складно). */
+fun difficultyColor(level: Int): Color = when (level) {
+    1 -> Color(0xFF4CAF50)
+    2 -> Color(0xFF9CCC65)
+    3 -> Color(0xFFFFD54F)
+    4 -> Color(0xFFFF9800)
+    5 -> Color(0xFFF44336)
+    else -> Color.Gray
+}
+
+/** Зірки складності. Якщо [onChange] задано — їх можна натискати (повторне натискання знімає оцінку). */
+@Composable
+fun DifficultyStars(level: Int, starSize: Dp = 14.dp, onChange: ((Int) -> Unit)? = null) {
+    val color = difficultyColor(level)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        for (i in 1..5) {
+            val filled = i <= level
+            val m = if (onChange != null) {
+                Modifier
+                    .size(starSize + 14.dp)
+                    .clip(CircleShape)
+                    .clickable { onChange(if (i == level) 0 else i) }
+                    .padding(7.dp)
+            } else Modifier.size(starSize)
+            Icon(
+                if (filled) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                contentDescription = if (onChange != null) "Складність $i" else null,
+                modifier = m,
+                tint = if (filled) color else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+            )
         }
     }
 }

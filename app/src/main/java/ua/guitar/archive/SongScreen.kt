@@ -93,6 +93,23 @@ fun SongScreen(vm: AppVm, lib: Library, song: Song) {
                     reqPx = 1024,
                 )
             }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Складність", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.width(4.dp))
+                DifficultyStars(song.difficulty, starSize = 24.dp) { lvl ->
+                    vm.store.updateSong(song.id) { it.copy(difficulty = lvl) }
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (song.difficulty > 0) difficultyName(song.difficulty) else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = difficultyColor(song.difficulty),
+                    maxLines = 1,
+                )
+            }
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp, containerColor = Color.Transparent) {
                 tabs.forEachIndexed { i, t ->
                     Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t) })
