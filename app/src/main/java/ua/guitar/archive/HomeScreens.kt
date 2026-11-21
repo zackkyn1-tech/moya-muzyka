@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 
 package ua.guitar.archive
 
@@ -6,7 +6,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -62,6 +69,55 @@ fun HomeScreen(vm: AppVm, lib: Library) {
     var query by rememberSaveable { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf(false) }
+
+    // ---- Перетягування категорій (утримуй картку й тягни) ----
+    val gridState = rememberLazyGridState()
+    val haptic = LocalHapticFeedback.current
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragOff by remember { mutableStateOf(Offset.Zero) }
+    var working by remember { mutableStateOf(lib.categories) }
+    if (dragId == null && working != lib.categories) working = lib.categories
+    val cats = if (dragId != null) working else lib.categories
+
+    fun onCatDrag(d: Offset) {
+        val id = dragId ?: return
+        dragOff += d
+        val info = gridState.layoutInfo
+        val cur = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
+        val center = Offset(cur.offset.x + cur.size.width / 2f, cur.offset.y + cur.size.height / 2f) + dragOff
+        val ids = working.map { it.id }.toSet()
+        val target = info.visibleItemsInfo.firstOrNull {
+            it.key != id && it.key in ids &&
+                center.x >= it.offset.x && center.x <= it.offset.x + it.size.width &&
+                center.y >= it.offset.y && center.y <= it.offset.y + it.size.height
+        }
+        if (target != null) {
+            val from = working.indexOfFirst { it.id == id }
+            val to = working.indexOfFirst { it.id == target.key }
+            if (from >= 0 && to >= 0) {
+                working = working.toMutableList().apply { add(to, removeAt(from)) }
+                dragOff += Offset((cur.offset.x - target.offset.x).toFloat(), (cur.offset.y - target.offset.y).toFloat())
+            }
+        }
+        val edge = 160f
+        val delta = when {
+            center.y < info.viewportStartOffset + edge -> -20f
+            center.y > info.viewportEndOffset - edge -> 20f
+            else -> 0f
+        }
+        if (delta != 0f) dragOff += Offset(0f, gridState.dispatchRawDelta(delta))
+    }
+
+    fun endCatDrag() {
+        if (dragId == null) return
+        val order = working.map { it.id }
+        dragId = null
+        dragOff = Offset.Zero
+        vm.store.update { l ->
+            val byId = l.categories.associateBy { it.id }
+            l.copy(categories = order.mapNotNull { byId[it] } + l.categories.filter { it.id !in order })
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -128,6 +184,7 @@ fun HomeScreen(vm: AppVm, lib: Library) {
             )
             else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(160.dp),
+                state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 12.dp, end = 12.dp,
@@ -137,13 +194,32 @@ fun HomeScreen(vm: AppVm, lib: Library) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (vm.backupFolder == null || vm.backupFailed) item(span = { GridItemSpan(maxLineSpan) }) {
+                if (vm.backupFolder == null || vm.backupFailed) item(key = "_banner", span = { GridItemSpan(maxLineSpan) }) {
                     BackupBanner(vm.backupFailed) { backups = true }
                 }
-                items(lib.categories, key = { it.id }) { c ->
+                items(cats, key = { it.id }) { c ->
+                    val dragging = c.id == dragId
                     CategoryCard(
                         vm, c, lib.songs.count { it.categoryId == c.id },
                         onEdit = { editing = c }, onDelete = { deleting = c },
+                        modifier = (if (dragging) Modifier
+                            .zIndex(1f)
+                            .graphicsLayer {
+                                translationX = dragOff.x; translationY = dragOff.y
+                                scaleX = 1.06f; scaleY = 1.06f; shadowElevation = 24f
+                            }
+                        else Modifier.animateItem())
+                            .pointerInput(c.id) {
+                                detectDragGesturesAfterLongPress(
+                                    onDragStart = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        dragId = c.id; dragOff = Offset.Zero
+                                    },
+                                    onDrag = { change, amount -> change.consume(); onCatDrag(amount) },
+                                    onDragEnd = { endCatDrag() },
+                                    onDragCancel = { endCatDrag() },
+                                )
+                            },
                     )
                 }
             }
@@ -181,13 +257,21 @@ fun HomeScreen(vm: AppVm, lib: Library) {
 }
 
 @Composable
-private fun CategoryCard(vm: AppVm, c: Category, count: Int, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun CategoryCard(
+    vm: AppVm,
+    c: Category,
+    count: Int,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(
-        Modifier
+        modifier
             .fillMaxWidth()
             .aspectRatio(0.85f)
             .clip(MaterialTheme.shapes.large)
-            .clickable { vm.open(Screen.CategoryScr(c.id)) },
+            // onLongClick порожній: довге натискання — для перетягування, а не для відкриття.
+            .combinedClickable(onClick = { vm.open(Screen.CategoryScr(c.id)) }, onLongClick = {}),
         shape = MaterialTheme.shapes.large,
     ) {
         Box {
